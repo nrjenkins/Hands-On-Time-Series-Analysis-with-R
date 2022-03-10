@@ -1,0 +1,255 @@
+---
+title: "Chapter 2: Working with Date and Time Objects"
+output: html_notebook
+---
+
+# The date and time formats
+
+# Date and time objects in R
+
+The `base` package provides two types of date and time classes:
+
+1.  `Date`: this basic format puts dates in the `YYY-m-d` format and tracks the number of days since the default of `1970-01-01`.
+2.  `POSIXct`/`POSIXlt`: Known as a `DateTime` class and they represent the calendar date, the time of daay, and the time zone using the ISO 8601 international standard format of `YYY-m-d H:M:S`. `POSIXct` represents the number of seconds since the origin point as a numeric vector and `POSIXlt` stores each one of the date and time elements as a list.
+
+It makes sense to use a time object only if the series frequency is higher than daily. Otherwise, it is recommended that you use the date object. Let's review the difference between these objects:
+
+```{r}
+date <- Sys.Date()
+date
+
+time_ct <- Sys.time()
+time_ct
+```
+
+Check out the class of each object:
+
+```{r}
+class(date)
+
+class(time_ct)
+```
+
+We can convert the `POSIXct` object to a `POSIXlt` object with `as.POSIClt`:
+
+```{r}
+time_lt <- as.POSIXlt(time_ct)
+time_lt
+class(time_lt)
+```
+
+Both of these object appear to be the same, but the difference is in how they are stored internally:
+
+```{r}
+unclass(time_ct)
+
+unclass(time_lt)
+```
+
+## Creating date and time objects
+
+We can convert the `"2014-5-12"` into a`Date` object like this:
+
+```{r}
+date <- as.Date("2014-5-12")
+date
+```
+
+Or as a `as.POSIXct` or `as.POSIXlt` objects:
+
+```{r}
+time_ct <- as.POSIXct("2014-5-12 20:05:35", tz = "EST")
+time_ct
+```
+
+## Importing date and time objects
+
+## Reformatting and converting date objects
+
+```{r}
+library(tidyverse)
+
+dates_df <- read_csv("https://raw.githubusercontent.com/PacktPublishing/Hands-On-Time-Series-Analysis-with-R/master/Chapter02/dates_formats.csv")
+
+str(dates_df)
+```
+
+Let's work to convert each of these variables to the correct date format.
+
+The first variable is the Japanese format for date. Because this is similar to the ISO 8601 standard we can just use `as.Date()`:
+
+```{r}
+dates_df$Japanese_format_new <- as.Date(dates_df$Japanese_format)
+
+select(dates_df, Japanese_format_new, Japanese_format)
+```
+
+Here is a summary table for the main arguments for date objects:
+
+| Symbol | Meaning                                                         | Example                  |
+|--------|-----------------------------------------------------------------|--------------------------|
+| `%a`   | Abbreviated weekday name in the current locale on this platform | Sun, Mon, Thu            |
+| `%A`   | Full weekday name in the current locale                         | Sunday, Monday, Thursday |
+| `%b`   | Abbreviated month name in the current locale on this platform   | Jan, Feb, Mar            |
+| `%B`   | Full month name in the current locale                           | January, February, March |
+| `%d`   | Day of the month as a decimal number                            | 01, 02, 03               |
+| `%m`   | Month as a decimal numner                                       | 01, 02, 03               |
+| `%y`   | A year without a century (two-digit)                            | 18                       |
+| `%Y`   | A year with a century (four-digit)                              | 2018                     |
+| `%r`   | For a 12-hour clock defined by the AM/PM indicator              | AM                       |
+
+Let's format the next variable, the US date format:
+
+```{r}
+dates_df$US_format_new <- as.Date(dates_df$US_format, format = "%m/%d/%Y")
+select(dates_df, US_format, US_format_new)
+```
+
+Now the rest of the columns:
+
+```{r}
+dates_df <- 
+  dates_df %>% 
+  mutate(US_long_format_new = as.Date(US_long_format, format = "%A, %B %d, %Y"),
+         CA_mix_format_new = as.Date(CA_mix_format, format = "%B %d, %Y"),
+         SA_mix_format_new = as.Date(SA_mix_format, format = "%d %B %Y"),
+         NZ_format_new = as.Date(NZ_format, format = "%d/%m/%Y"))
+
+glimpse(dates_df)
+```
+
+## Handling numeric date objects
+
+Date objects in R are stored as numeric values from an origin point (01-01-1970 as the default in R). This means that we can correctly identify dates in this format if we know the right origin point. For Excel, it's 12/30/1899.
+
+```{r}
+dates_df$Excel_Numeric_Format_new <- as.Date(dates_df$Excel_Numeric_Format, origin = as.Date("1899-12-30"))
+
+select(dates_df, Excel_Numeric_Format_new, Excel_Numeric_Format)
+```
+
+Let's check our work:
+
+```{r}
+str(dates_df)
+```
+
+## Reformatting and conversion of time objects
+
+The `POSIX` classes are an extension of the `Date` class, with the addition of four elements: hours, minutes, seconds and time zone. Let's start with an example using the ISO 8601 international standard:
+
+```{r}
+time_str <- "2018-12-31 23:59:59"
+
+time_posix_ct1 <- as.POSIXct(time_str)
+time_posix_ct1
+```
+
+The numeric value of a time object represents the number of seconds since the origin point.
+
+```{r}
+time_numeric <- 1546318799
+
+time_posix_ct2 <- as.POSIXct(time_numeric, origin = "1970-01-01")
+time_posix_ct2
+```
+
+In addition to mapping the date and time, we also have to identify and map the cycle of the day (AM or PM).
+
+```{r}
+time_US_str <- "Monday, December 31, 2018 11:59:59 PM"
+```
+
+Gets formatted by:
+
+```{r}
+time_posix_ct3 <- as.POSIXct(time_US_str, format = "%A, %B %d, %Y %I:%M:%S %p")
+time_posix_ct3
+```
+
+Here is a table for formatting time objects:
+
+| Symbol | Meaning                                                            | Example       |
+|--------|--------------------------------------------------------------------|---------------|
+| `%H`   | Hours as a decimal number (00-23)                                  | 17:00:00      |
+| `%I`   | Hours as a decimal number (01-12)                                  | 5:00:00 PM    |
+| `%M`   | Minutes as a decimal number (00-59)                                | 17:15:00      |
+| `%S`   | Seconds as an integer (00-61), allowing for up to two leap-seconds | 17:15:45      |
+| `%p`   | AM/PM indicator in the locale                                      | AM, PM        |
+| `%r`   | Equivalent to `%I:%M:%S %p` for 12-hour clock time                 | 9:35:00 PM    |
+| `%T`   | Equivalent to `%H:%M:%S`                                           | 17:15:00      |
+| `%Z`   | Time zone abbreviation as a character string                       | GMT, EST, PDT |
+
+## Time zone setting
+
+Time zone is the 7th element of the `POSIX` classes and be set with the `tz` argument of the `format` argument.
+
+# Creating a date or time index
+
+The `base` package provides two functions for producing time index vectors with `Date` or `POSIX` objects respectively `seq.Date()` and `seq.POSIXt()`. `seq.Date()` is good for daily frequencies or lower, `seq.POSIXt()` is good for higher frequencies like hourly, etc.
+
+```{r}
+daily_index <- seq.Date(from = as.Date("2016-01-01"),
+                        to = as.Date("2018-12-31"),
+                        by = "day")
+
+head(daily_index)
+```
+
+# Manipulation of date and time with the lubridate package
+
+## Reformatting date and time objects - the lubridate way
+
+Let's go back to the complex object:
+
+```{r}
+time_US_str <- "Monday, December 31, 2018 11:59:59 PM"
+```
+
+To convert this with lubridate, we use the `ymd_hms()` function:
+
+```{r}
+library(lubridate)
+
+time_lubridate <- mdy_hms(time_US_str, tz = "EST")
+time_lubridate
+```
+
+Let's go back to the original data and convert the first 6 variables into date objects with the `ymd()` function:
+
+```{r}
+dates_df <- read_csv("https://raw.githubusercontent.com/PacktPublishing/Hands-On-Time-Series-Analysis-with-R/master/Chapter02/dates_formats.csv")
+
+dates_df <- 
+  dates_df %>% 
+  mutate(Japanese_format_new = ymd(Japanese_format),
+         across(US_format:CA_mix_format, ~ mdy(.x), .names = "{.col}_new"),
+         across(SA_mix_format:NZ_format, ~ dmy(.x), .names = "{.col}_new"))
+```
+
+To convert numeric values to date objects, we use `as_date()` for date objects and `as_datetime()` for time objects.
+
+```{r}
+dates_df$Excel_Numeric_Format_new <- as_date(dates_df$Excel_Numeric_Format,
+                                             origin = ymd("1899-12-30"))
+```
+
+## Utility functions for date and time objects
+
+lubridate provides tools to extract elements of time and date options:
+
+```{r}
+time_obj <- mdy_hms(time_US_str, tz = "EST")
+
+# day of the year
+yday(time_obj)
+
+# day of the quarter
+qday(time_obj)
+
+# day of the month
+mday(time_obj)
+
+# day of the week
+wday(time_obj, label = TRUE)
+```
