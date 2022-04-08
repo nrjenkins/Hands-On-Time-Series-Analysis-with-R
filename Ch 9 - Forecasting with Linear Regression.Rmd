@@ -1,0 +1,408 @@
+---
+title: "Chapter 8: Forecasting with Linear Regression"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+# The linear regression
+
+## Coefficients estimation with the OLS method
+
+### The OLS assumptions
+
+# Forecasting with linear regression
+
+Forecasting with a linear regression model is mainly based on the following two steps:
+
+1. Identifying the series structure, key characteristics, patterns, outliers, and other features
+
+2. Transforming those features into input variables and regressing them with the series to create a forecasting model
+
+The core features of a linear regression forecasting model are the trend and seasonal components.
+
+## Forecasting the trend and seasonal components
+
+The model when the series has an additive structure:
+
+$$
+Y = \beta_0 + \beta_1T_t + \beta_2S_t + \epsilon_t
+$$
+
+When the series has a multiplicative structure:
+
+$$
+\log(Y) = \beta_0 + \beta_1\log(T_t) + \beta_2\log(S_t) + \epsilon_t
+$$
+
+## Feature engineering of the series components
+
+```{r}
+library(pacman)
+p_load(TSstudio, tidyverse, timetk, lubridate, tidymodels)
+
+ts_plot(USgas)
+
+ts_info(USgas)
+
+ts_decompose(USgas)
+
+# convert USgas to a data frame
+usgas_df <- ts_to_prophet(USgas)
+head(usgas_df)
+```
+
+A basic approach for constructing the trend variable is by indexing the series observations in chronological order:
+
+```{r}
+library(tidyverse)
+
+usgas_df <- 
+  usgas_df %>% 
+  mutate(trend = row_number())
+```
+
+The frequency units of the `USgas` series are months of the year so we need 12 categorical variables. 
+
+```{r}
+library(lubridate)
+
+usgas_df <- 
+  usgas_df %>% 
+  mutate(seasonal = factor(month(ds, label = TRUE), ordered = FALSE))
+
+glimpse(usgas_df)
+
+usgas_split <- initial_time_split(usgas_df, prop = 0.95)
+usgas_training <- training(usgas_split)
+usgas_testing <- testing(usgas_split)
+```
+
+## Modeling the series trend and seasonal components
+
+```{r}
+md_trend <- lm(y ~ trend, data = usgas_training)
+
+library(broom)
+tidy(md_trend)
+
+usgas_training$yhat <- predict(md_trend, usgas_training)
+
+usgas_testing$yhat <- predict(md_trend, usgas_testing)
+
+ggplot(data = usgas_df, aes(x = ds, y = y)) +
+  geom_line() +
+  geom_line(data = usgas_training, aes(y = yhat), color = "red") +
+  geom_line(data = usgas_testing, aes(y = yhat), color = "blue", lty = 2)
+```
+
+This shows that we captured the general trend. 
+
+```{r}
+md_seasonal <- lm(y ~ seasonal, data = usgas_training)
+
+tidy(md_seasonal)
+
+usgas_training$yhat <- predict(md_seasonal, usgas_training)
+
+usgas_testing$yhat <- predict(md_seasonal, usgas_testing)
+
+ggplot(data = usgas_df, aes(x = ds, y = y)) +
+  geom_line() +
+  geom_line(data = usgas_training, aes(y = yhat), color = "red") +
+  geom_line(data = usgas_testing, aes(y = yhat), color = "blue", lty = 2)
+```
+
+This shows that the model is doing a decent job of capturing the seasonal pattern. 
+
+```{r}
+md1 <- lm(y ~ seasonal + trend, data = usgas_training)
+tidy(md1)
+glance(md2)
+
+usgas_training$yhat <- predict(md1, usgas_training)
+
+usgas_testing$yhat <- predict(md1, usgas_testing)
+
+ggplot(data = usgas_df, aes(x = ds, y = y)) +
+  geom_line() +
+  geom_line(data = usgas_training, aes(y = yhat), color = "red") +
+  geom_line(data = usgas_testing, aes(y = yhat), color = "blue", lty = 2)
+```
+
+Adding a polynomial component could capture more of the variation. 
+
+```{r}
+md2 <- lm(y ~ seasonal + trend + I(trend^2), data = usgas_training)
+tidy(md2)
+glance(md2)
+
+usgas_training$yhat <- predict(md2, usgas_training)
+
+usgas_testing$yhat <- predict(md2, usgas_testing)
+
+ggplot(data = usgas_df, aes(x = ds, y = y)) +
+  geom_line() +
+  geom_line(data = usgas_training, aes(y = yhat), color = "red") +
+  geom_line(data = usgas_testing, aes(y = yhat), color = "blue", lty = 2)
+```
+
+## The `tslm()` function
+
+The `tslm()` function does all this without needing to convert to a data frame.
+
+```{r}
+usgas_split <- ts_split(USgas, sample.out = 12)
+train.ts <- usgas_split$train
+test.ts <- usgas_split$test
+
+md3 <- tslm(train.ts ~ season + trend + I(trend^2))
+summary(md3)
+
+accuracy(md3)
+```
+
+## Modeling single events and non-seasonal events
+
+Some times time series data may contain unusual patterns:
+
+* Outliers: a single event or events that are out of the normal pattern of the series
+
+* structural break: a significant event that changes the historical patterns
+
+* Non-seasonal re-occurring events: An event that repeats from cycle to cycle but time that they occur changes from cycle to cycle
+
+After 2010 in the `USgas` series, the series started an upward trend. To capture this, we can use a binay variable that equals zero for observations before the year 2010 and one afterwards. 
+
+```{r}
+usgas_df <- 
+  usgas_df %>% 
+  mutate(seasonal = factor(month(ds, label = TRUE), ordered = FALSE),
+         s_break = ifelse(year(ds) >= 2010, 1, 0))
+
+glimpse(usgas_df)
+
+usgas_split <- initial_time_split(usgas_df, prop = 0.95)
+usgas_training <- training(usgas_split)
+usgas_testing <- testing(usgas_split)
+
+md3 <- lm(y ~ seasonal + trend + I(trend^2) + s_break, data = usgas_training)
+tidy(md3)
+glance(md3)
+
+usgas_training$yhat <- predict(md3, usgas_training)
+
+usgas_testing$yhat <- predict(md3, usgas_testing)
+
+ggplot(data = usgas_df, aes(x = ds, y = y)) +
+  geom_line() +
+  geom_line(data = usgas_training, aes(y = yhat), color = "red") +
+  geom_line(data = usgas_testing, aes(y = yhat), color = "blue", lty = 2)
+```
+
+# Forecasting a series with multiseasonality components - a case study
+
+## The UKgrid series
+
+```{r}
+library(UKgrid)
+
+glimpse(UKgrid)
+
+ukgrid_daily <- 
+  UKgrid %>% 
+  summarise_by_time(.date_var = TIMESTAMP,
+                    .by = "day",
+                    value = sum(ND)) %>% 
+  filter_by_time(.start_date = "2011", .end_date = "end")
+
+glimpse(ukgrid_daily)
+
+library(timetk)
+ukgrid_daily %>% 
+  plot_time_series(TIMESTAMP, value, .interactive = TRUE, .smooth = FALSE)
+
+ukgrid_daily %>% 
+  filter(year(TIMESTAMP) >= 2016) %>% 
+  plot_seasonal_diagnostics(TIMESTAMP, value, .interactive = TRUE)
+```
+
+## Preprocessing and feature engineering of the UKdaily series
+
+We need to create three features:
+
+* Day of the week 
+
+* Month of the year
+
+* lag variable with 365 observations
+
+```{r}
+ukgrid_daily <- 
+  ukgrid_daily %>% 
+  janitor::clean_names() %>% 
+  mutate(timestamp = ymd(timestamp),
+         day = day(timestamp),
+         wday = wday(timestamp, label = TRUE),
+         month = month(timestamp, label = TRUE),
+         lag365 = dplyr::lag(value, n = 365)) %>% 
+  filter(!is.na(lag365)) %>% 
+  arrange(timestamp) %>%
+  mutate(trend = row_number()) %>% 
+  group_by(year(timestamp)) %>% 
+  mutate(season = factor(row_number())) %>% 
+  ungroup()
+
+start_date <- min(UKdaily$TIMESTAMP)
+start <- c(year(start_date), yday(start_date))
+
+uk_ts <- ts(ukgrid_daily$value,
+            start = start,
+            frequency = 365)
+
+ts_info(uk_ts)
+
+ukpartitions <- ts_split(uk_ts, sample.out = 365)
+
+train_ts <- ukpartitions$train
+test_ts <- ukpartitions$test
+
+library(forecast)
+md_tslm1 <- tslm(train_ts ~ season + trend)
+coef(md_tslm1)
+
+tk_tsfeatures(ukgrid_daily, .date_var = timestamp, .value = value,
+              .period = 365)
+
+# check for correlation between seasonal lags
+ukgrid_daily %>% 
+  plot_acf_diagnostics(timestamp, .value = value, .lags = 365 * 4)
+```
+
+This plot shows a strong correlation with seasonal lags. 
+
+Now we want to forecast the next 365 observations. 
+
+```{r}
+ukgrid_split <- 
+  initial_time_split(ukgrid_daily, 
+                     prop = (nrow(ukgrid_daily) - 365) / nrow(ukgrid_daily))
+
+ukgrid_train <- training(ukgrid_split)
+ukgrid_test <- testing(ukgrid_split)
+```
+
+## Training and testing the forecasting model
+
+We want to train three models:
+
+* Baseline model: model with seasonal and trend components
+
+* multiseasonal model: adding the day of the week and month of the year
+
+* multiseasonal model with a seasonal lag: seasonal indicators with a seasonal lag variable. 
+
+```{r}
+base_fit <- lm(value ~ season + trend, data = ukgrid_train)
+tidy(base_fit)
+
+ukgrid_train$yhat <- predict(base_fit, ukgrid_train)
+ukgrid_test$yhat <- predict(base_fit, ukgrid_test)
+
+ggplot(data = ukgrid_daily, aes(x = timestamp, y = value)) +
+  geom_line() +
+  geom_line(data = ukgrid_train, aes(y = yhat), color = "red", size = 3) +
+  geom_line(data = ukgrid_test, aes(y = yhat), color = "blue", lty = 2,
+            size = 3) +
+  theme_classic()
+
+model_metrics <- metric_set(rmse, mae, mpe, mape, mase)
+
+bind_cols(
+  model_metrics(ukgrid_train, truth = value, estimate = yhat),
+  model_metrics(ukgrid_test, truth = value, estimate = yhat)
+)
+
+p_load(fable)
+fit <- 
+  ukgrid_daily %>% as_tsibble(index = timestamp) %>% model(lm = TSLM(value ~ trend() + season()))
+tidy(fit)
+```
+
+Now we'll try to improve the model by adding the day of week and month of the year.
+
+```{r}
+multi_fit <- lm(value ~ season + trend + wday + month, data = ukgrid_train)
+tidy(multi_fit)
+
+ukgrid_train$yhat <- predict(multi_fit, ukgrid_train)
+ukgrid_test$yhat <- predict(multi_fit, ukgrid_test)
+
+ggplot(data = ukgrid_daily, aes(x = timestamp, y = value)) +
+  geom_line() +
+  geom_line(data = ukgrid_train, aes(y = yhat), color = "red", size = 1) +
+  geom_line(data = ukgrid_test, aes(y = yhat), color = "blue", lty = 2,
+            size = 1) +
+  theme_classic()
+
+model_metrics <- metric_set(rmse, mae, mpe, mape, mase)
+
+bind_cols(
+  model_metrics(ukgrid_train, truth = value, estimate = yhat),
+  model_metrics(ukgrid_test, truth = value, estimate = yhat)
+)
+```
+
+Finally we add the lag variable to the model. 
+
+```{r}
+lag_fit <- lm(value ~ season + trend + wday + month + lag365, 
+              data = ukgrid_train)
+tidy(lag_fit) %>% view()
+
+ukgrid_train$yhat <- predict(lag_fit, ukgrid_train)
+ukgrid_test$yhat <- predict(lag_fit, ukgrid_test)
+
+ggplot(data = ukgrid_daily, aes(x = timestamp, y = value)) +
+  geom_line() +
+  geom_line(data = ukgrid_train, aes(y = yhat), color = "red", size = 1) +
+  geom_line(data = ukgrid_test, aes(y = yhat), color = "blue", lty = 2,
+            size = 1) +
+  theme_classic()
+
+model_metrics <- metric_set(rmse, mae, mpe, mape, mase)
+
+bind_cols(
+  model_metrics(ukgrid_train, truth = value, estimate = yhat),
+  model_metrics(ukgrid_test, truth = value, estimate = yhat)
+)
+```
+
+## Model selection
+
+Here are some things to consider when selecting a final model:
+
+* The first question you should ask in the case: is the lag variable significant? If it isn't then drop it.
+
+```{r}
+tidy(lag_fit) %>% filter(term == "lag365")
+```
+
+* Backtesting
+
+## Residual analysis
+
+```{r}
+augment(lag_fit, newdata = ukgrid_train) %>% 
+  ggplot(aes(x = timestamp, y = .resid)) +
+  geom_line()
+
+augment(lag_fit, newdata = ukgrid_train) %>% 
+  ggplot(aes(x = .resid)) +
+  geom_histogram() +
+  geom_rug()
+
+augment(lag_fit, newdata = ukgrid_train) %>% 
+  plot_acf_diagnostics(.date_var = timestamp, .value = .resid)
+```
+

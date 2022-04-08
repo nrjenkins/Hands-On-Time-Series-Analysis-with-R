@@ -1,0 +1,117 @@
+---
+title: "Chapter 6: Correlation Analysis"
+output: html_notebook
+---
+
+# Correlation between two variables
+
+# Lags analysis
+
+The goal of lags analysis is to identify and quantify the relationship between a series and its lags. When a series has a seasonal pattern, there should be a correlation with its seasonal lags.
+
+```{r}
+library(TSstudio)
+data(USgas)
+
+ts_plot(USgas)
+```
+
+This series has strong seasonal patterns, but the `EURO_Brent` does not:
+
+```{r}
+data("EURO_Brent")
+
+ts_plot(EURO_Brent)
+```
+
+The last series, `USVSales` has strong seasonal and cycle patterns:
+
+```{r}
+data("USVSales")
+
+ts_plot(USVSales)
+```
+
+# The autocorrelation function
+
+This quantifies the relationship between a series and its lags.
+
+```{r}
+acf(USgas, lag.max = 60)
+```
+
+The blue dotted lines indicate whether the level of correlation between the series and each lag is significant or not. This shows a strong positive correlation with the seasonal lags along with negative correlation with the mid-seasonal lags.
+
+```{r}
+acf(EURO_Brent, lag.max = 60)
+```
+
+This acf shows a cyclical pattern in the data.
+
+```{r}
+acf(USVSales, lag.max = 60)
+```
+
+This shows both a seasonal and cycle pattern in the data.
+
+# The partial autocorrelation function
+
+One of the downsides of the acf is that it doesn't remove the effect of lags 1 up to k-1 on the series when calculating the correlation on the series with the k lag. The pacf computes the conditional correlation of the series with the k lag given the relationship of the 1, 2, ..., and k-1 lags. It shows the correlation of the series with the $k$ lag after removing the correlation of the $k$ lag with previous lags.
+
+```{r}
+pacf(USgas, lag.max = 60)
+```
+
+# Lag plots
+
+Lag plots visualize the relationshup between a series and its lags.
+
+```{r}
+ts_lags(USgas)
+```
+
+# Causality analysis
+
+The main pitfall of using only past lags is that the lags do not necessarily drive the changes in the series - there could be other exogenous factors. The goal of causality analysis is to identify whether a causal relationship exists between the series we wish to forecast and other potential exogenous factors.
+
+## Causality versus correlation
+
+Two variables will have a causal relationship when the change in one variable triggers a direct change of the second variable.
+
+## The cross-correlation function
+
+The ccf measures the level of correlation between to series and their lags in a fairly similar way as the acf.
+
+```{r}
+data("USUnRate")
+
+ts_plot(USUnRate)
+```
+
+Let's align the `USUnRate` and `USVSales` series with a `window` function:
+
+```{r}
+us_vsales <- window(USVSales, start = c(1976, 1), end = c(2018, 6))
+us_unrate <- window(USUnRate, start = c(1976, 1), end = c(2018, 6))
+
+library(plotly)
+
+plot_ly(x = time(us_vsales),
+        y = us_vsales) %>% 
+  add_lines(x = time(us_unrate),
+            y = us_unrate,
+            yaxis = "y2") %>% 
+  layout(yaxis2 = list(overlaying = "y", side = "right"))
+```
+
+We can measure the level of correlation between the unemployment rate and the vehicle sales and its lags using the `ccf()` function.
+
+```{r}
+ccf(x = us_vsales, y = us_unrate, lag.max = 36)
+```
+
+You can also use `ccf_plot()` from the **TSstudio** package.
+
+```{r}
+ccf_plot(x = USVSales, y = USUnRate, lags = 0:12)
+```

@@ -1,0 +1,209 @@
+---
+title: "Chatper 7: Forecasting Strategies"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+# The forecast workflow
+
+1. **Data preparation**: Prepare the training and test data. Create new features, and applying transformations
+
+2. **Train the model**: Use the training set to train, tune, and estimate the model coefficients that minimize the selected error criteria. 
+
+3. **Test the model**: Use the trained model to forecast the corresponding observations of the testing data. 
+
+4. **Model evaluation**: Evaluate the overall performance of the model on both the training and testing partitions. 
+
+Note that the training and testing partitions should be in chronological order. Once we train and test the model, we retrain the model will all of the data. 
+
+# Training approaches
+
+The main goals of the training process are:
+
+* Formalize the relatinoshop of the series with other factors, such as seasonal and trend patterns, correlation with past lags, and external variables in a predictive manner.
+
+* Tune the model parameters
+
+* The model is scalable on new data, or in other words, avoids overfitting
+
+## Training with single training and testing partitions
+
+* The length of the testing partition should be up to 30% of the total length of the series
+
+* The length of the testing partition should be the length of the forecasting horizon
+
+For example, if we have a monthly series with 72 observations (or 6 years) and the goal is to forecast the nest year (12 months), it would make sense to use the first 60 observations for training and test the performance using the last 12 observations. Let's split the `USgas` series into partitions, leaving the last 12 observations of the series as the testing partition and the rest as training. 
+
+```{r}
+library(pacman)
+p_load(tidyverse, tidymodels, modeltime, TSstudio)
+
+data(USgas)
+
+ts_info(USgas)
+
+usgas_training <- window(USgas,
+                         start = time(USgas)[1],
+                         end = time(USgas)[length(USgas) - 12])
+
+usgas_testing <- window(USgas,
+                        start = time(USgas)[length(USgas) - 12 + 1],
+                        end = time(USgas)[length(USgas)])
+
+ts_info(usgas_training)
+
+ts_info(usgas_testing)
+```
+
+We can also use `ts_split()` to split the data:
+
+```{r}
+usgas_split <- ts_split(USgas, sample.out = 12)
+
+usgas_training <- usgas_split$train
+usgas_testing <- usgas_split$test
+```
+
+## Forecasting with backtesting
+
+Backtesting is based on the idea of using a rolling window to split the series into multiple pairs of training and testing partitions. A backtesting training process includes the following steps:
+
+1. **Data preparation**: Create multiple pairs of training and testing partitions
+
+2. **Train a model**: This is done on each one of the training partitions.
+
+3. **Teat the model**: Score its performance on the corresponding testing partitions.
+
+4. **Evaluate the model**
+
+Scoring methodology allows us to assess the model's stability by examining the model's error rate on the different testing sets. We consider a model as stable whenever the model's error distribution on the testing sets is fairly narrow. 
+
+The length of the training partitions can be determined by an expanding window or a sliding window. An expanding window is most approaprate when the series has a strong seasonal pattern and stable trend. A sliding window is most approprate when the series has structural change or high volatility, or when most of the predictive power is linked to the most recent history. 
+
+# Forecast evaluation
+
+* **Residual analysis**: Focuses on the quality of the model, with fitted values in the training partition. 
+
+* **Scoring the forecast**: Based on the ability of the model to forecast the actual values of the testing set. 
+
+## Residual analysis
+
+Residual analysis tests how well the model captured and identified the series patterns. This process includes the use of data visualization tools and statistical tests to assess the following:
+
+* **Test the goodness of fit agains the actual values**: You do this by plotting the residual values over time in chronological order. The plot tells you how well the model was able to capture the oscilation of the series. Residuals with random oscillation around the zero and with constant variation indicate that the model is able to capture the majority of the series variation. Here are some potential interpretations of residuals that do exhibit patterns:
+
+  * All or most of the residuals are aobe the zero lines: The model tends to underestimate the actual values
+  
+  * All or most of the residuals are below the zero lines: The model tends to overestimate the actual values
+  
+  * Random spikes: potential outliers in the training partition
+  
+    * The residual autocorrelation: How well the model was able to capture the patterns of the series. Correlated lags indicate patterns the model did not capture
+    
+    * The residual distribution: If the residuals are not normally distributed, we cannot use it to create confidence intervals
+
+To demonstrate the residual analysis process, we will train an ARIMA model on the training partition we created earlier:
+
+```{r}
+p_load(forecast)
+
+md <- auto.arima(usgas_training)
+
+checkresiduals(md)
+```
+
+We can reject the null hypothesis of the Ljung-Box test meaning that there is a correlation between the series and its lags so the series observations are not independent. 
+
+## Scoring the forecast
+
+After finalizing the model tuning, we use the model to predict the test data. Here are common metrics:
+
+* Mean squared error (MSE): measures the distance between the actual and forecasted values
+
+* Root mean squared error (RMSE): root of the average squared distance
+
+* Mean absolute error (MAE): measures the error rate of the forcast
+
+* mean absolute percentage error (MAPE)
+
+Let's use the `forecast()` function to forecast the following 12 months:
+
+```{r}
+fc <- forecast(md, h = 12)
+
+accuracy(fc, usgas_testing)
+```
+
+Another approach is to use the `test_forecast()` function. 
+
+```{r}
+test_forecast(actual = USgas, forecast.obj = fc, test = usgas_testing)
+```
+
+## Forecast benchmark
+
+To determine whether the trained model's error metrics are high or low, we compare it to some baseline forecast. 
+
+A simple naive approach assues that the most recently observed value is the true representative of the future. 
+
+```{r}
+naive_model <- naive(usgas_training, h = 12)
+
+test_forecast(actual = USgas,
+              forecast.obj = naive_model,
+              test = usgas_testing)
+
+accuracy(naive_model, usgas_testing)
+```
+
+Since `USgas` has a seasonal pattern, it makes sense to use a seasonal naive model that accounts for seasonal variation. 
+
+```{r}
+snaive_model <- snaive(usgas_training, h = 12)
+
+test_forecast(actual = USgas,
+              forecast.obj = snaive_model,
+              test = usgas_testing)
+
+accuracy(snaive_model, usgas_testing)
+```
+
+# Finalizing the forecast
+
+The final step is to recalibrate the model's weights or coefficients with the full series. There are two approaches to this:
+
+* If the model was tuned manually, you should use the exact tuning parameters that were used on the trained model
+
+* If the model was tuned automatically, you can:
+
+  * extract the parameter setting that was used by with the training partition
+  
+  * Let the algorithm retun the model parameters using the full series, under the assumption that the algorithm has the ability to adjust the model parameters correctly. 
+  
+```{r}
+md_final <- auto.arima(USgas)
+
+fc_final <- forecast(md_final, h = 12)
+
+plot_forecast(fc_final)
+```
+
+# Handling forecast uncertainty
+
+The goal of the forecast is to minimize the level of uncertainty around the future values of the series. 
+
+## Confidence interval 
+
+Express the range of possible values that contain the true value with some degree of confidence
+
+## Simulation
+
+This approach uses the model distribution to simulate possible paths for the forecast. 
+
+## Horse race approach
+
+```{r}
+
+```
+

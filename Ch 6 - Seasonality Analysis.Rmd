@@ -1,0 +1,215 @@
+---
+title: "Chapter 5: Seasonality Analysis"
+output: html_notebook
+---
+
+# Seasonality types
+
+When seasonality exists in the time series data, we can classify this into one of the following categories:
+
+-   Single seasonal pattern: Whenever possible there is only one dominant seasonal pattern in the series
+
+-   Multiple seasonal patterns: If more than one dominant seasonal pattern exists in the series
+
+```{r}
+library(TSstudio)
+
+data(USgas)
+
+ts_info(USgas)
+
+ts_plot(USgas)
+```
+
+And the **UKgrid** dataset:
+
+```{r}
+library(UKgrid)
+
+ukgrid_xts <- extract_grid(type = "xts",
+                           columns = "ND",
+                           aggregate = "hourly",
+                           na.rm = TRUE)
+
+ts_plot(UKgrid)
+```
+
+# Seasonal analysis with descriptive statistics
+
+## Summary statistics tables
+
+```{r}
+usgas_df <- data.frame(year = floor(time(USgas)), 
+                       month = cycle(USgas),
+                       USgas = as.numeric(USgas))
+
+usgas_df$month <- factor(month.abb[usgas_df$month], levels = month.abb)
+
+library(tidyverse)
+usgas_df %>% 
+  group_by(month) %>% 
+  summarize(mean = mean(USgas),
+            sd = sd(USgas)) %>% 
+  ggplot(aes(x = month, y = mean)) +
+  geom_col() +
+  coord_cartesian(ylim = c(1500, 2700))
+```
+
+The first indication of a potential multiple seasonal pattern is if a series has a high frequency, such as daily, hourly, and minutely.
+
+Now we explore the `USgas` dataset:
+
+```{r}
+library(xts)
+library(lubridate)
+
+ukgrid_df <- 
+  tibble(
+    time = index(ukgrid_xts),
+    ukgrid = as.numeric(ukgrid_xts)
+  ) %>% 
+  mutate(hour = hour(time),
+         weekday = wday(time, label = TRUE, abbr = TRUE),
+         month = factor(month.abb[month(time)], levels = month.abb))
+
+head(ukgrid_df)
+
+ukgrid_hourly <- 
+  ukgrid_df %>% 
+  group_by(hour) %>% 
+  summarize(mean = mean(ukgrid, na.rm = TRUE),
+            sd = sd(ukgrid, na.rm = TRUE))
+
+library(plotly)
+plot_ly(ukgrid_hourly) %>% 
+  add_lines(x = ~ hour, y = ~ mean) %>% 
+  add_lines(x = ~ hour, y = ~ sd, yaxis = "y2")
+```
+
+It's clear that:
+
+-   there is low demand during the nighttime and high demand between morning hours and early evening
+
+-   there is a strong correlation between the average demand and its standard deviation
+
+-   the relatively low standard deviation of the demand average during the nighttime could indicate that there is strong sub-seasonal effect during those hours beside the hourly seasonality.
+
+-   The high standard deviation during high-demand hours could indicate that the demand is distributed differently on different periodicity views
+
+To examine the last point by subsetting the series into two groups representing the demand in the middle of the night and the demand throughout the day, and then we will group be the weekday.
+
+```{r}
+ukgrid_df %>% 
+  filter(hour == 3 | hour == 9) %>% 
+  group_by(hour, weekday) %>% 
+  summarize(mean = mean(ukgrid, na.rm = TRUE),
+            sd = sd(ukgrid, na.rm = TRUE)) %>% 
+  ggplot(aes(x = weekday, y = mean, fill = as_factor(hour))) +
+  geom_col(position = position_dodge())
+```
+
+This shows that demand for electricity at 3a.m. is relatively stable throughout all the days of the week, but there is a significant difference between the the weekday and weekend demand at 9a.m. Now we can examine the monthly seasonal patterns in the series:
+
+```{r}
+ukgrid_df %>% 
+  filter(hour == 3 | hour == 9) %>% 
+  group_by(hour, month) %>% 
+  summarize(mean = mean(ukgrid, na.rm = TRUE),
+            sd = sd(ukgrid, na.rm = TRUE)) %>% 
+  ggplot(aes(x = month, y = mean, fill = as_factor(hour))) +
+  geom_col(position = position_dodge())
+```
+
+Here we see that the demand during both the night (3a.m.( and the morning (9a.m.) vary throughout the months of the year. This indicates monthly seasonality in the series.
+
+## Seasonality analysis with density plots
+
+Another approach for analyzing seasonal patterns in time series data is by plotting the distribution of the frequency units using histogram or density plots. This allws you to determine whether each frequency unit has a unique distribution that can distinguish it from the rest of the units.
+
+```{r}
+ggplot(data = usgas_df, aes(x = USgas, fill = month)) +
+  geom_density() +
+  facet_grid(rows = vars(as.factor(month)))
+```
+
+The shape of each density plot of each month provides us with insights about the characteristics of each month. We can see some seasonal pattern in the series because the densities are not overlapping with each other and because the shape of the distributions is flatter with long tails for some months.
+
+We did not, however, remove the trend in the series. Let's do that and replot:
+
+```{r}
+usgas_df$USgas_detrend <- usgas_df$USgas - decompose(USgas)$trend
+
+ggplot(data = usgas_df, aes(x = USgas_detrend, fill = month)) +
+  geom_density() +
+  facet_grid(rows = vars(as.factor(month)))
+```
+
+Removing the trend sharpens the seasonal effect as the tails of the distributions become shorter. You should always remove the series trend whenever the trend is non-linear or when there is distribution that has a long tail.
+
+If the distribuion of most of the frequency units is flat with a long tail, it could be an indication of multiple seasonal patterns in the series.
+
+```{r}
+ggplot(data = ukgrid_df, aes(x = ukgrid, fill = as.factor(hour))) +
+  geom_density() +
+  facet_grid(rows = vars(as.factor(hour)))
+```
+
+The demand for electricity during the nighttime is relatively stable (hense the non-flat distribution with short tails as opposed to flat long tail distribution during the daytime).
+
+If we look at one hour over the week, we should see an overlapping during the nighttime and be able to distinguish between the distribution during the weekdays and weekend.
+
+```{r}
+ukgrid_df %>% 
+  filter(hour == 9) %>% 
+  ggplot(aes(x = ukgrid, fill = as.factor(weekday))) +
+  geom_density() +
+  facet_grid(rows = vars(as.factor(weekday)))
+```
+
+# Structural tools for seasonal analysis
+
+## Seasonal analysis with the forecast package
+
+`ggseasonplot()` from the **forecast** package helps identify trends by plottting each year as a separate line:
+
+```{r}
+library(forecast)
+ggseasonplot(USgas)
+
+ggplot(usgas_df, aes(x = month, y = USgas, group = year, color = year)) +
+  geom_line()
+```
+
+This shows that all years follow a similar pattern and that the series is growing over time. Another way to represent the frequency cycle is with a polar plot:
+
+```{r}
+ggseasonplot(USgas, polar = TRUE)
+
+ggplot(usgas_df, aes(x = month, y = USgas, group = year, color = as.factor(year))) +
+  geom_line() +
+  coord_polar(start = 0)
+```
+
+## Seasonal analysis with the TSstudio package
+
+The `ts_seasonal()` function provides similar functionality as the `ggseasonplot()` function.
+
+```{r}
+ts_seasonal(USgas, type = "normal")
+```
+
+```{r}
+ts_seasonal(USgas, type = "cycle")
+```
+
+```{r}
+ts_seasonal(USgas, type = "box")
+```
+
+```{r}
+ts_seasonal(USgas, type = "all")
+```
+
+```{r}
+ts_quantile(UKgrid, period = "weekdays", n = 2)
+```

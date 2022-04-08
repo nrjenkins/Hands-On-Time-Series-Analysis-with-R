@@ -1,0 +1,301 @@
+---
+title: "Chapter 4: Decomposition of Time Series Data"
+output: html_notebook
+---
+
+# The moving average function
+
+The moving average averages each observation of a series with its surrounding observations in chronological order. The main components of the MA function are:
+
+-   The rolling window: A generic function that slides along data in chronological order
+
+-   Average function: this is either a simple or weighted average
+
+## The rolling window structure
+
+The most common types of window structures are:
+
+-   The one-sided window: a sliding window with a width of *n* which groups each observation of the series with its past consecutive *n-1* observations.
+
+-   The two-sided window: rolling window which groups each observation with its past $n_1$ and future $n_2$ observations.
+
+## The average method
+
+-   the arithmetic average: based on summing all observations and dividing them by the number of observations
+
+-   The weighted average: based on applying a weight to each observation of the series
+
+## The MA attributes
+
+The MA function has two primary attributes that are derived directly from the window structure.
+
+-   Order: this defines the magnitude of the MA and is equal to the length of the window
+
+-   Cost: the cost is the loss of observations during the transformation of the origin series to the smoothed series by the MA process.
+
+The main applications of the MA function are:
+
+-   Noise reduction: the use of the MA method creates a smoothing effect that reduces series variation, smoothing the random noise and outliers.
+
+-   De-seasonalize: used to remove the seasonal component
+
+-   Forecasting: can be used to forecast
+
+Let's see an example of a one-sided MA with an arithmetic average, known as a simple MA, a two-sided MA and a weighted MA.
+
+```{r}
+library(TSstudio)
+data("USVSales")
+
+ts_info(USVSales)
+
+ts_plot(USVSales,
+        title = "US Monthly Total Vehicle Sales",
+        Ygrid = TRUE,
+        Xgrid = TRUE)
+```
+
+## The simple moving average
+
+Let's build our own simple moving average function. We will do so by creating a rolling window function and an average function.
+
+```{r}
+lags <- function(ts.obj, l) {
+  ts_merged <- NULL
+  
+  # creating n lags
+  for (i in 1:l) {
+    ts_merged <- ts.union(ts_merged, stats::lag(ts.obj, k = -i))
+  }
+  
+  # merge the lags with the original series
+  ts_merged <- ts.union(ts.obj, ts_merged)
+  
+  # set the column names
+  colnames(ts_merged) <- c("y", paste0("y_", 1:i))
+  
+  # removing missing values as results of creating the lags
+  ts_merged <- window(ts_merged, 
+                      start = start(ts.obj) + 1,
+                      end = end(ts.obj))
+  
+  return(ts_merged)
+}
+
+head(lags(USVSales, l = 3))
+```
+
+## Two-sided MA
+
+```{r}
+two_sided_ma <- ts_ma(ts.obj = USVSales,
+                      n = c(2, 5),
+                      n_left = 6,
+                      n_right = 5,
+                      plot = TRUE,
+                      multiple = TRUE,
+                      margin = 0.4)
+```
+
+The higher the order of the function, the smoother the output.
+
+## A simple MA versus a two-sided MA
+
+```{r}
+one_sided_12 <- ts_ma(USVSales, n = NULL, n_left = 11, plot = FALSE)
+two_sided_12 <- ts_ma(USVSales, n = NULL, n_left = 6, n_right = 5, plot = FALSE)
+one_sided <- one_sided_12$unbalanced_ma_12
+two_sided <- two_sided_12$unbalanced_ma_12
+
+ma <- cbind(USVSales, one_sided, two_sided)
+
+ts_plot(ma)
+```
+
+A two-sided MA is more approprate to apply as a smoother or data filter method. A one-sided MA makes sense when you need to have the most recent observations.
+
+# The time series components
+
+Patterns in time series analysis can be categorized into one of the following:
+
+-   Structural Patterns: also known as series components. There are three types - trend, cycle, and seasonal.
+
+-   Non-structural: also known as the irregular component and refers to any other types of patterns in the data.
+
+We can use these two groups of patterns to express time series data using the following equation when the series has an additive structure:
+
+$$
+Y_t = T_t + S_t + C_t + I_t
+$$
+
+And when the series has a multiplicative structure:
+
+$$
+Y_t = T_t \times S_t \times C_t \times I_t
+$$
+
+## The cycle component
+
+```{r}
+data("USUnRate")
+
+ts_info(USUnRate)
+```
+
+We don't need to plot the entire series, so we will subset it with a `window` function:
+
+```{r}
+unemployment <- window(USUnRate, start = c(1990, 1))
+
+ts_plot(unemployment)
+```
+
+## The trend component
+
+A trend is a general direction in a series.
+
+```{r}
+set.seed(1234)
+
+ts_non_trend <- ts(runif(200, 5, 5.2),
+                   start = c(2000, 1),
+                   frequency = 12)
+```
+
+## The seasonal component
+
+A seasonal trend is one that has repeated variation over time.
+
+## The seasonal component versus the cycle component
+
+```{r}
+usgas <- as.xts(USgas)
+ggplot(data = usgas, aes(x = year(index(usgas)), 
+                         y = month(index(usgas), label = TRUE),
+                         fill = (1 / data))) +
+  geom_tile()
+```
+
+The plot above shows a seasonal cycle.
+
+```{r}
+us_emp_rt <- as.xts(USUnRate)
+
+ggplot(data = us_emp_rt, aes(x = year(index(us_emp_rt)), 
+                             y = month(index(us_emp_rt), label = TRUE),
+                             fill = 1 / data)) +
+  geom_tile()
+```
+
+This plot shows cycles.
+
+## White noise
+
+A white noise pattern is a lack of a pattern. There are some methods to test if a series is white noise.
+
+-   plot it out an eyeball
+
+-   Measure the correlation with the autocorrelation function
+
+-   the Ljung-Box testz; the null hypothesis assumes that the lags are not correlated.
+
+## The irregular component
+
+This is the remainder between the series and structural components.
+
+# The additive versus the multiplicative model
+
+We classify a series as additive whenever there is growth in the trend, or if the amplitude of the seasonal component remains the same over time.
+
+We classify a series as multiplicative whenever the growth of the trend or the magnitude of the seasonal component increases or decreases by some multiplicity from period to period over time.
+
+Here is an example of an additive series:
+
+```{r}
+ts_plot(USgas)
+```
+
+Here is an example of a multiplicative series:
+
+```{r}
+data("AirPassengers")
+
+ts_plot(AirPassengers)
+```
+
+## Handling multiplicative series
+
+Most forecasting models assume that the variation of the input series remains constant over time. This usually holds for a series with an additive structure, but fails with a multiplicative structure. The common solution is to apply a data transformation:
+
+-   log transformation: apply the $log$ to both sides of the series equation
+
+-   box-cox transformation: applying power on the input series with the box-cox formula
+
+```{r}
+library(forecast)
+
+air_passenger_lambda <- BoxCox.lambda(AirPassengers)
+air_passenger_lambda
+```
+
+We can use the coefficient to transform the input series with the `BoxCox` transformation and plot it:
+
+```{r}
+air_passenger_trans <- BoxCox(AirPassengers, lambda = air_passenger_lambda)
+
+ts_plot(air_passenger_trans)
+```
+
+# The decomposition of time series
+
+Once the data has been cleaned and reformatted, we need to identify the structure of the series components. The decomposition of a series is a generic name for the process of separating a series into its components.
+
+## Classical seasonal decomposition
+
+This is a three step process:
+
+1.  trend estimation: uses the MA function to remove the seasonal component from the series. THe order of the MA function is determined by the frequency of the series.
+2.  Seasonal component estimation: Two step process that starts with detrending the series by subtracting the trend estimation from the previous step. After the series is detrended, the next step is to estimate the seasonal component for each frequency unit. This is done by grouping the observations by their frequency unit and then averaging each group.
+3.  Irregular component estimation: subtracting the estimation of the trend and seasonal components from the original series.
+
+We can do all of this with the `decompose()` function:
+
+```{r}
+usv_decomposed <- decompose(USVSales)
+
+str(usv_decomposed)
+```
+
+-   `x` is the original series
+
+-   `seasonal` is the estimate of the seasonal trend
+
+-   `trend` is the estimate of the series trend
+
+-   `random` is the irregular component
+
+-   `figure` estimated seasonal figure only
+
+-   `type` the type of decomposition, either additive or multiplicative
+
+```{r}
+plot(usv_decomposed)
+```
+
+And with a multiplicative model:
+
+```{r}
+air_decomposed <- decompose(AirPassengers, type = "multiplicative")
+
+plot(air_decomposed)
+```
+
+One limitation of the classical decomposition method is that the seasonal component uses the arithmetic average. This means that there is a single seasonal component estimation for each cycle unit. This is fine with additive models, but can be problematic with multiplicative models since the seasonal aspect changes over time.
+
+# Seasonal Adjustment
+
+Seasonal adjustment is the process of removing the seasonal fluctuation from a series. The transformation process of the seasonal adjustment method is straightforward:
+
+1.  Estimate the seasonal component using a decomposition process
+2.  Remove the seasonal component from the series, which leaves the series with only the trend and the irregular component
+3.  Optionall, you can apply a smoothing function to remove noise and outliers
