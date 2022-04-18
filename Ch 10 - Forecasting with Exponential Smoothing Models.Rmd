@@ -1,0 +1,85 @@
+---
+title: 'Chapter 10: Forecasting with Exponential Smoothing Models'
+author: "Nick Jenkins"
+date: '2022-04-18'
+output: html_document
+---
+
+# The simple moving average
+
+The simple moving average function can be used as a forecasting model. The smoothed value of the last observations of the series is the forecasted value of observation $T + 1$. 
+
+Forecasting with the SMA function is recommended when the input of the series has no structural patterns, such as trend and seasonal components. 
+
+Let's use a SMA function to forecast monthly prices of the Robusta coffee prices in the next 12 months. 
+
+```{r}
+library(TSstudio)
+data("Coffee_Prices")
+
+ts_info(Coffee_Prices)
+```
+
+```{r}
+robusta <- Coffee_Prices[, 1]
+
+ts_plot(robusta)
+```
+
+# Weighted moving average
+
+The weighted moving average is an extended version of the SMA function, and it is based on the use of the weighted average. The WMA allows you to distribute the weight of the lags on the rolling window. 
+
+# Forecasting with exponential smoothing
+
+The main difference between the moving average and the exponential smoothing models is that the exponential smoothing model averages all the values. 
+
+## Simple exponential smoothing model
+
+The main assumption is that the series stays at the same level. The SES model is weighted based on the exponential decay of the observation weights according to their chronological distance from the first forecasted values. 
+
+### Forecasting with the `ses()` function
+
+```{r}
+robusta_par <- ts_split(robusta, sample.out = 12)
+train <- robusta_par$train
+test <- robusta_par$test
+
+library(forecast)
+
+fc_ses <- ses(train, h = 12, initial = "optimal")
+
+fc_ses$model
+
+test_forecast(actual = robusta,
+              forecast.obj = fc_ses,
+              test = test)
+
+plot_forecast(fc_ses)
+```
+
+### Model optimization with grid search
+
+Now we use grid search to tune the model parameters which minimize the model's MAPE for the Robusta price series. 
+
+```{r}
+robusta_par1 <- ts_split(robusta, sample.out = 24)
+
+train1 <- robusta_par1$train
+test1 <- ts_split(robusta_par1$test, sample.out = 12)$train
+
+robusta_par2 <- ts_split(robusta, sample.out = 12)
+
+train2 <- robusta_par2$train
+valid <- robusta_par2$test
+```
+
+## Hold method
+
+Also known as double exponential smoothing. It is based on estimating the most recent trend with the use of two smoothing parameters. Once the model estimates the most recent level and trend, it utilizes them to construct the series forecast using the following equation: 
+
+### Forecasting with the hold function
+
+# Holt-Winters model
+
+The Holt-Winters model is an extended version of the Holt model and can handle time series data with both trend and seasonal components. Forecasting the seasonal component required a third smoother parameter and equation, in addition to the ones of the level and trend. 
